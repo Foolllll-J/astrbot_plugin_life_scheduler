@@ -1,0 +1,2 @@
+# astrbot_plugin_life_scheduler
+一个为 AstrBot 设计的拟人化生活日程生成插件。它利用 LLM 的能力，根据日期、节日、历史日程和近期对话记录，自动为 Bot 生成每日的穿搭和日程安排，并将其注入到系统提示词（System Prompt）中，使 Bot 拥有更加真实、连续的“生活”状态。
