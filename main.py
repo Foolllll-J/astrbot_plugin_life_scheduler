@@ -12,12 +12,18 @@ try:
 except ImportError:
     holidays = None
 
+try:
+    from openai import AsyncOpenAI
+except ImportError:
+    AsyncOpenAI = None
+
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 import astrbot.api.event.filter as filter
 from astrbot.api.event import AstrMessageEvent, MessageEventResult
 from astrbot.core.message.message_event_result import MessageChain
 from astrbot.api.all import Star, Context, Plain, Image
+# 修复 ImportError: cannot import name 'ProviderRequest' from 'astrbot.api.all'
 from astrbot.core.provider.entities import ProviderRequest
 from astrbot.core.platform.message_session import MessageSesion
 from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import AiocqhttpMessageEvent
@@ -66,6 +72,9 @@ class SchedulerConfig:
 }}
 """
     outfit_desc: str = "今日穿搭描述（一句话，符合天气和心情）。"
+    llm_api_base: str = ""
+    llm_api_key: str = ""
+    llm_model: str = ""
 
     @staticmethod
     def from_dict(data: dict) -> 'SchedulerConfig':
@@ -88,6 +97,10 @@ class SchedulerConfig:
             config.prompt_template = data["prompt_template"]
         if "outfit_desc" in data:
             config.outfit_desc = data["outfit_desc"]
+            
+        config.llm_api_base = data.get("llm_api_base", "")
+        config.llm_api_key = data.get("llm_api_key", "")
+        config.llm_model = data.get("llm_model", "")
         return config
 
     def to_dict(self) -> dict:
@@ -100,7 +113,10 @@ class SchedulerConfig:
             "report_targets": self.report_targets,
             "report_mode": self.report_mode,
             "prompt_template": self.prompt_template,
-            "outfit_desc": self.outfit_desc
+            "outfit_desc": self.outfit_desc,
+            "llm_api_base": self.llm_api_base,
+            "llm_api_key": self.llm_api_key,
+            "llm_model": self.llm_model
         }
 
 # --- Helper Functions ---
@@ -324,11 +340,6 @@ class Main(Star):
 
     async def generate_schedule_with_llm(self) -> Optional[Dict[str, str]]:
         """调用 LLM 生成日程"""
-        provider = self.context.get_using_provider()
-        if not provider:
-            self.logger.error("No LLM provider available.")
-            return None
-
         today = datetime.datetime.now()
         date_str = today.strftime("%Y年%m月%d日")
         weekday = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"][today.weekday()]
@@ -369,8 +380,29 @@ class Main(Star):
         )
 
         try:
-            response = await provider.text_chat(prompt, session_id=None)
-            content = response.completion_text
+            content = ""
+            if self.config.llm_api_key and AsyncOpenAI:
+                client = AsyncOpenAI(
+                    api_key=self.config.llm_api_key,
+                    base_url=self.config.llm_api_base if self.config.llm_api_base else None
+                )
+                model = self.config.llm_model if self.config.llm_model else "gpt-3.5-turbo"
+                response = await client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": "You are a helpful assistant."},
+                        {"role": "user", "content": prompt}
+                    ]
+                )
+                content = response.choices[0].message.content
+            else:
+                provider = self.context.get_using_provider()
+                if not provider:
+                    self.logger.error("No LLM provider available.")
+                    return None
+                
+                response = await provider.text_chat(prompt, session_id=None)
+                content = response.completion_text
             
             # JSON 提取
             # Improved JSON extraction

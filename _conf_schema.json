@@ -32,6 +32,21 @@
       "description": "穿搭生成的提示词要求",
       "default": "今日穿搭描述（一句话，符合天气和心情）。"
     },
+    "llm_api_base": {
+      "type": "string",
+      "description": "独立 LLM API Base URL (可选，留空使用 AstrBot 全局配置)",
+      "default": ""
+    },
+    "llm_api_key": {
+      "type": "string",
+      "description": "独立 LLM API Key (可选，留空使用 AstrBot 全局配置)",
+      "default": ""
+    },
+    "llm_model": {
+      "type": "string",
+      "description": "独立 LLM 模型名称 (可选，留空使用默认)",
+      "default": ""
+    },
     "report_targets": {
       "type": "array",
       "items": {
