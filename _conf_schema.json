@@ -1,0 +1,73 @@
+{
+  "type": "object",
+  "properties": {
+    "schedule_time": {
+      "type": "string",
+      "description": "每日生成日程的时间 (HH:MM)",
+      "default": "07:00"
+    },
+    "enable_auto_report": {
+      "type": "boolean",
+      "description": "是否开启自动播报",
+      "default": true
+    },
+    "report_mode": {
+      "type": "string",
+      "enum": [
+        "text",
+        "image",
+        "llm_voice",
+        "all"
+      ],
+      "description": "播报模式 (text: 纯文本, image: 图片, llm_voice: 语音, all: 混合)",
+      "default": "text"
+    },
+    "reference_history_days": {
+      "type": "integer",
+      "description": "生成时参考的历史日程天数",
+      "default": 3
+    },
+    "outfit_desc": {
+      "type": "string",
+      "description": "穿搭生成的提示词要求",
+      "default": "今日穿搭描述（一句话，符合天气和心情）。"
+    },
+    "report_targets": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "自动播报的目标列表 (User ID / Group ID / UMO)"
+    },
+    "reference_chats": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "umo": {
+            "type": "string",
+            "description": "会话 ID (UMO)"
+          },
+          "count": {
+            "type": "integer",
+            "description": "读取最近消息条数",
+            "default": 20
+          }
+        },
+        "required": [
+          "umo"
+        ]
+      },
+      "description": "生成时参考的近期会话列表"
+    },
+    "prompt_template": {
+      "type": "string",
+      "description": "LLM 生成日程的完整 Prompt 模板",
+      "format": "textarea"
+    }
+  },
+  "required": [
+    "schedule_time",
+    "enable_auto_report"
+  ]
+}
