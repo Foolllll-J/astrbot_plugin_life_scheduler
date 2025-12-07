@@ -18,6 +18,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
 from astrbot.api import logger
 from astrbot.api.all import Star, Context, Plain, Image
+# Fix ImportError: StarTools is not in astrbot.api.all
 from astrbot.core.star.star_tools import StarTools
 from astrbot.core.provider.entities import ProviderRequest
 from astrbot.core.message.message_event_result import MessageChain
