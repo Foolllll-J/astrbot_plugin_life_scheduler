@@ -12,20 +12,13 @@ try:
 except ImportError:
     holidays = None
 
-try:
-    from openai import AsyncOpenAI
-except ImportError:
-    AsyncOpenAI = None
-
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 import astrbot.api.event.filter as filter
 from astrbot.api.event import AstrMessageEvent, MessageEventResult
-from astrbot.core.message.message_event_result import MessageChain
 from astrbot.api.all import Star, Context, Plain, Image
-# 修复 ImportError: cannot import name 'ProviderRequest' from 'astrbot.api.all'
 from astrbot.core.provider.entities import ProviderRequest
-from astrbot.core.platform.message_session import MessageSesion
+from astrbot.core.message.message_event_result import MessageChain
 from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import AiocqhttpMessageEvent
 from astrbot.core import html_renderer
 
@@ -72,9 +65,6 @@ class SchedulerConfig:
 }}
 """
     outfit_desc: str = "今日穿搭描述（一句话，符合天气和心情）。"
-    llm_api_base: str = ""
-    llm_api_key: str = ""
-    llm_model: str = ""
 
     @staticmethod
     def from_dict(data: dict) -> 'SchedulerConfig':
@@ -98,9 +88,6 @@ class SchedulerConfig:
         if "outfit_desc" in data:
             config.outfit_desc = data["outfit_desc"]
             
-        config.llm_api_base = data.get("llm_api_base", "")
-        config.llm_api_key = data.get("llm_api_key", "")
-        config.llm_model = data.get("llm_model", "")
         return config
 
     def to_dict(self) -> dict:
@@ -113,10 +100,7 @@ class SchedulerConfig:
             "report_targets": self.report_targets,
             "report_mode": self.report_mode,
             "prompt_template": self.prompt_template,
-            "outfit_desc": self.outfit_desc,
-            "llm_api_base": self.llm_api_base,
-            "llm_api_key": self.llm_api_key,
-            "llm_model": self.llm_model
+            "outfit_desc": self.outfit_desc
         }
 
 # --- Helper Functions ---
@@ -271,8 +255,9 @@ class Main(Star):
         self.context = context
         self.logger = logging.getLogger("astrbot_plugin_life_scheduler")
         
-        self.config_path = os.path.join(self.context.plugin_dir, "config.json")
-        self.data_path = os.path.join(self.context.plugin_dir, "data.json")
+        self.base_dir = os.path.dirname(__file__)
+        self.config_path = os.path.join(self.base_dir, "config.json")
+        self.data_path = os.path.join(self.base_dir, "data.json")
         
         self.generation_lock = asyncio.Lock()
         self.failed_dates = set() # Track dates where generation failed to avoid infinite retries
@@ -381,28 +366,14 @@ class Main(Star):
 
         try:
             content = ""
-            if self.config.llm_api_key and AsyncOpenAI:
-                client = AsyncOpenAI(
-                    api_key=self.config.llm_api_key,
-                    base_url=self.config.llm_api_base if self.config.llm_api_base else None
-                )
-                model = self.config.llm_model if self.config.llm_model else "gpt-3.5-turbo"
-                response = await client.chat.completions.create(
-                    model=model,
-                    messages=[
-                        {"role": "system", "content": "You are a helpful assistant."},
-                        {"role": "user", "content": prompt}
-                    ]
-                )
-                content = response.choices[0].message.content
-            else:
-                provider = self.context.get_using_provider()
-                if not provider:
-                    self.logger.error("No LLM provider available.")
-                    return None
-                
-                response = await provider.text_chat(prompt, session_id=None)
-                content = response.completion_text
+            provider = self.context.get_using_provider()
+            if not provider:
+                self.logger.error("No LLM provider available.")
+                return None
+            
+            # session_id 必须是 str，如果没有特定会话，可以传空字符串或特定标识
+            response = await provider.text_chat(prompt, session_id="life_scheduler_gen")
+            content = response.completion_text
             
             # JSON 提取
             # Improved JSON extraction
@@ -434,21 +405,17 @@ class Main(Star):
         # 准备内容
         text_content = f"早安！\n👗 今日穿搭：{schedule_info.get('outfit')}\n📝 日程安排：\n{schedule_info.get('schedule')}"
         
-        if mode == "image" or mode == "all":
+        if mode in ["image", "all"]:
             img_url = await render_schedule_image(self.context, schedule_info)
             if img_url:
-                if img_url.startswith("http"):
-                    msg_chain.append(Image.fromURL(img_url))
-                else:
-                    msg_chain.append(Image.fromFileSystem(img_url))
+                msg_chain.append(Image(img_url))
             else:
                 # 降级为文本
-                msg_chain.append(Plain(text_content))
+                if mode == "image":
+                    msg_chain.append(Plain(text_content))
         
-        if mode == "text" or (mode == "all" and not msg_chain): 
-             # 如果是 all 模式，通常是图片加文字
-             if mode == "all" or mode == "text":
-                 msg_chain.append(Plain(text_content))
+        if mode == "text" or mode == "all":
+            msg_chain.append(Plain(text_content))
 
         if mode == "llm_voice":
             # TODO: 调用 LLM 转述，生成语音（需 TTS 支持）
@@ -459,17 +426,9 @@ class Main(Star):
         for target in targets:
             if not target: continue
             try:
-                if target.isdigit():
-                    adapter = self.context.get_platform_adapter("aiocqhttp")
-                    if adapter:
-                        await AiocqhttpMessageEvent.send_message(
-                            bot=adapter.bot,
-                            message_chain=MessageChain(msg_chain),
-                            session_id=str(target),
-                            is_group=False
-                        )
-                else:
-                    await self.context.send_message(target, msg_chain)
+                # 统一使用 context.send_message，它会自动处理不同平台的适配
+                # 注意：send_message 通常接受 MessageChain 对象
+                await self.context.send_message(target, MessageChain(msg_chain))
                     
                 self.logger.info(f"Reported schedule to {target}")
             except Exception as e:

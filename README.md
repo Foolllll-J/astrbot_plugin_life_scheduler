@@ -36,9 +36,9 @@ pip install -r requirements.txt
 | `schedule_time` | string | `"07:00"` | 每日自动生成日程并播报的时间 (HH:MM)。 |
 | `enable_auto_report` | boolean | `true` | 是否开启自动播报功能。 |
 | `report_mode` | string | `"text"` | 播报模式。可选值：<br>- `text`: 纯文本消息<br>- `image`: 生成图片卡片（需 AstrBot 支持 HTML 渲染）<br>- `all`: 图文混合<br>- `llm_voice`: (预留) 语音播报 |
-| `report_targets` | array | `[]` | 自动播报的目标列表。填入 User ID、Group ID 或 Unified Message Origin (UMO)。 |
-| `reference_history_days` | integer | `3` | 生成今日日程时，参考过去几天的历史日程。 |
-| `reference_chats` | array | `[]` | 生成时参考的近期会话列表。详见下方示例。 |
+| `report_targets` | list | `[]` | 自动播报的目标列表。请填写 Unified Message Origin (UMO)，例如 `QQ:FriendMessage:123456` 或 `QQ:GroupMessage:654321`。 |
+| `reference_history_days` | int | `3` | 生成今日日程时，参考过去几天的历史日程。 |
+| `reference_chats` | list | `[]` | 生成时参考的近期会话列表。详见下方示例。 |
 | `outfit_desc` | string | *(见配置)* | 指导 LLM 生成穿搭的提示词要求。 |
 | `prompt_template` | string | *(见配置)* | 自定义 LLM 生成日程的完整 Prompt 模板。 |
 
@@ -46,14 +46,23 @@ pip install -r requirements.txt
 
 配置此项可以让 Bot 根据最近聊过的话题来安排今天的日程（例如昨天答应了群友今天要去看电影）。
 
+> **提示**: `umo` 字段为 Unified Message Origin (统一消息来源)。
+>
+> **如何获取 UMO？**
+> 对 Bot 发送 `/sid` 指令，Bot 会返回当前会话的详细信息，其中包含 `UMO` 字段。
+>
+> 示例格式：
+> - QQ 私聊：`QQ:FriendMessage:123456`
+> - QQ 群聊：`QQ:GroupMessage:654321`
+
 ```json
 "reference_chats": [
   {
-    "umo": "qq_group_123456",
+    "umo": "QQ:GroupMessage:123456",
     "count": 20
   },
   {
-    "umo": "qq_private_987654",
+    "umo": "QQ:FriendMessage:987654",
     "count": 10
   }
 ]
@@ -84,6 +93,10 @@ pip install -r requirements.txt
 ### 图片渲染
 
 当 `report_mode` 设置为 `image` 或 `all` 时，插件会使用内置的 HTML 模板生成一张包含日期、穿搭和日程详情的卡片图片。这需要 AstrBot 的运行环境支持 HTML 渲染（通常基于 Playwright 或类似机制）。
+
+### 懒加载机制
+
+如果到了预定的生成时间（默认 07:00）Bot 未运行或生成失败，插件会在当天的第一次对话时自动触发“懒加载”生成。这确保了无论 Bot 何时启动，只要有对话发生，人设数据都是可用的。
 
 ## ⚠️ 注意事项
 
