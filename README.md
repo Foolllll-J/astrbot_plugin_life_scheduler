@@ -6,7 +6,6 @@
 
 - **📅 拟人化日程生成**: 结合日期、节日（中国节假日）、历史日程和近期对话，生成富有生活气息的日程表。
 - **👗 每日穿搭推荐**: 根据设定生成符合人设的每日穿搭描述。
-- **📢 多模式播报**: 支持纯文本、精美图片卡片（HTML 渲染）等多种播报方式，每天定时发送。
 - **🧠 System Prompt 注入**: 自动将当日穿搭和当前时间段的日程状态（刚开始、进行中、即将结束）注入 LLM 上下文。Bot 在日常对话中会“记得”自己今天穿了什么，正在做什么。
 - **🔗 上下文感知**: 生成日程时会参考过去几天的安排和指定的最近聊天记录，保持人设的一致性和记忆连贯性。
 - **⚡️ 懒加载机制**: 如果当天未到达生成时间或未生成，在首次对话时会自动生成，确保人设数据始终可用。
@@ -34,9 +33,6 @@ pip install -r requirements.txt
 | 字段 | 类型 | 默认值 | 说明 |
 | :--- | :--- | :--- | :--- |
 | `schedule_time` | string | `"07:00"` | 每日自动生成日程并播报的时间 (HH:MM)。 |
-| `enable_auto_report` | boolean | `true` | 是否开启自动播报功能。 |
-| `report_mode` | string | `"text"` | 播报模式。可选值：<br>- `text`: 纯文本消息<br>- `image`: 生成图片卡片（需 AstrBot 支持 HTML 渲染）<br>- `all`: 图文混合<br>- `llm_voice`: (预留) 语音播报 |
-| `report_targets` | list | `[]` | 自动播报的目标列表。请填写 Unified Message Origin (UMO)，例如 `QQ:FriendMessage:123456` 或 `QQ:GroupMessage:654321`。 |
 | `reference_history_days` | int | `3` | 生成今日日程时，参考过去几天的历史日程。 |
 | `reference_chats` | list | `[]` | 生成时参考的近期会话列表。详见下方示例。 |
 | `outfit_desc` | string | *(见配置)* | 指导 LLM 生成穿搭的提示词要求。 |
@@ -89,10 +85,6 @@ pip install -r requirements.txt
 ```
 
 * `(进行中)` 状态会根据当前时间自动判断：`刚开始` (<9点)、`进行中`、`即将结束` (>22点)。
-
-### 图片渲染
-
-当 `report_mode` 设置为 `image` 或 `all` 时，插件会使用内置的 HTML 模板生成一张包含日期、穿搭和日程详情的卡片图片。这需要 AstrBot 的运行环境支持 HTML 渲染（通常基于 Playwright 或类似机制）。
 
 ### 懒加载机制
 

@@ -5,22 +5,6 @@
     "description": "每日生成日程的时间 (HH:MM)",
     "default": "07:00"
   },
-  "enable_auto_report": {
-    "type": "bool",
-    "description": "是否开启自动播报",
-    "default": true
-  },
-  "report_mode": {
-    "type": "string",
-    "enum": [
-      "text",
-      "image",
-      "llm_voice",
-      "all"
-    ],
-    "description": "播报模式 (text: 纯文本, image: 图片, llm_voice: 语音, all: 混合)",
-    "default": "text"
-  },
   "reference_history_days": {
     "type": "int",
     "description": "生成时参考的历史日程天数",
@@ -30,14 +14,6 @@
     "type": "string",
     "description": "穿搭生成的提示词要求",
     "default": "今日穿搭描述（从里到外、从上到下、衣裤内衣裤鞋袜、饰品等，符合天气和心情）。"
-  },
-  "report_targets": {
-    "type": "list",
-    "items": {
-      "type": "string"
-    },
-    "description": "自动播报的目标列表 (User ID / Group ID / UMO)",
-    "default": []
   },
   "reference_chats": {
     "type": "list",

@@ -41,13 +41,9 @@ class ChatReference:
 
 @dataclass
 class SchedulerConfig:
-    admin_id: str = "" # 保留兼容
     schedule_time: str = "07:00"
-    enable_auto_report: bool = True
     reference_history_days: int = 3
     reference_chats: List[ChatReference] = field(default_factory=list)
-    report_targets: List[str] = field(default_factory=list) # List of unified_msg_origin or user_id
-    report_mode: Literal["text", "image", "llm_voice", "all"] = "text"
     prompt_template: str = """请根据以下信息，为自己生成一份今天的拟人化生活安排：
 日期：{date_str} {weekday} {holiday}
 人设：{persona_desc}
@@ -69,20 +65,12 @@ class SchedulerConfig:
     @staticmethod
     def from_dict(data: dict) -> 'SchedulerConfig':
         config = SchedulerConfig()
-        config.admin_id = data.get("admin_id", "")
         config.schedule_time = data.get("schedule_time", "07:00")
-        config.enable_auto_report = data.get("enable_auto_report", True)
         config.reference_history_days = data.get("reference_history_days", 3)
         
         refs = data.get("reference_chats", [])
         config.reference_chats = [ChatReference.from_dict(r) for r in refs]
         
-        config.report_targets = data.get("report_targets", [])
-        # 兼容旧版 admin_id
-        if config.admin_id and config.admin_id not in config.report_targets:
-            config.report_targets.append(config.admin_id)
-            
-        config.report_mode = data.get("report_mode", "text")
         if "prompt_template" in data:
             config.prompt_template = data["prompt_template"]
         if "outfit_desc" in data:
@@ -92,13 +80,9 @@ class SchedulerConfig:
 
     def to_dict(self) -> dict:
         return {
-            "admin_id": self.admin_id,
             "schedule_time": self.schedule_time,
-            "enable_auto_report": self.enable_auto_report,
             "reference_history_days": self.reference_history_days,
             "reference_chats": [r.to_dict() for r in self.reference_chats],
-            "report_targets": self.report_targets,
-            "report_mode": self.report_mode,
             "prompt_template": self.prompt_template,
             "outfit_desc": self.outfit_desc
         }
@@ -156,54 +140,6 @@ def get_holiday_info(date: datetime.date) -> str:
         return ""
     return ""
 
-async def render_schedule_image(context: Context, schedule_data: dict) -> Optional[str]:
-    """渲染日程图片，返回图片 URL 或本地路径"""
-    try:
-        html_template = """
-        <!DOCTYPE html>
-        <html lang="zh-CN">
-        <head>
-            <meta charset="UTF-8">
-            <title>每日日程</title>
-            <style>
-                body { font-family: 'Microsoft YaHei', sans-serif; background-color: #f0f2f5; padding: 20px; }
-                .card { background: white; border-radius: 15px; padding: 30px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); max-width: 600px; margin: 0 auto; }
-                .header { text-align: center; margin-bottom: 20px; border-bottom: 2px solid #eee; padding-bottom: 15px; }
-                .date { font-size: 1.2em; color: #666; }
-                .outfit { background: #e3f2fd; padding: 15px; border-radius: 10px; margin-bottom: 20px; color: #1565c0; }
-                .schedule { white-space: pre-wrap; line-height: 1.6; color: #333; }
-            </style>
-        </head>
-        <body>
-            <div class="card">
-                <div class="header">
-                    <h1>📅 今日生活安排</h1>
-                    <div class="date">{{ date_str }}</div>
-                </div>
-                <div class="outfit">
-                    <strong>👗 今日穿搭：</strong><br>
-                    {{ outfit }}
-                </div>
-                <div class="schedule">
-                    <strong>📝 日程安排：</strong><br>
-                    {{ schedule }}
-                </div>
-            </div>
-        </body>
-        </html>
-        """
-        
-        today_str = datetime.datetime.now().strftime("%Y-%m-%d")
-        html = html_template.replace("{{ date_str }}", today_str)
-        html = html.replace("{{ outfit }}", schedule_data.get("outfit", ""))
-        html = html.replace("{{ schedule }}", schedule_data.get("schedule", ""))
-        
-        url = await html_renderer.render(html)
-        return url
-        
-    except Exception as e:
-        logging.getLogger("astrbot_plugin_life_scheduler").error(f"Failed to render image: {e}")
-        return None
 
 # --- Scheduler Class ---
 
@@ -307,7 +243,7 @@ class Main(Star):
             self.logger.error(f"Failed to save data: {e}")
 
     async def daily_schedule_task(self):
-        """定时任务：生成日程并尝试播报"""
+        """定时任务：生成日程"""
         self.logger.info("Starting daily schedule generation task...")
         today_str = datetime.datetime.now().strftime("%Y-%m-%d")
         
@@ -318,9 +254,6 @@ class Main(Star):
 
         self.schedule_data[today_str] = schedule_info
         self.save_data()
-        
-        if self.config.enable_auto_report:
-            await self.report_schedule(schedule_info)
 
     async def generate_schedule_with_llm(self) -> Optional[Dict[str, str]]:
         """调用 LLM 生成日程"""
@@ -391,47 +324,22 @@ class Main(Star):
             self.logger.error(f"Error calling LLM: {e}")
             return None
 
-    async def report_schedule(self, schedule_info: Dict[str, str], target_umo: Optional[str] = None):
-        """发送播报"""
-        targets = [target_umo] if target_umo else self.config.report_targets
-        if not targets:
-            self.logger.warning("No report targets configured.")
+    async def send_schedule_info(self, schedule_info: Dict[str, str], target_umo: str):
+        """发送日程信息"""
+        if not target_umo:
             return
 
-        msg_chain = []
-        mode = self.config.report_mode
-        
         # 准备内容
         text_content = f"早安！\n👗 今日穿搭：{schedule_info.get('outfit')}\n📝 日程安排：\n{schedule_info.get('schedule')}"
         
-        if mode in ["image", "all"]:
-            img_url = await render_schedule_image(self.context, schedule_info)
-            if img_url:
-                msg_chain.append(Image(img_url))
-            else:
-                # 降级为文本
-                if mode == "image":
-                    msg_chain.append(Plain(text_content))
-        
-        if mode == "text" or mode == "all":
-            msg_chain.append(Plain(text_content))
-
-        if mode == "llm_voice":
-            # TODO: 调用 LLM 转述，生成语音（需 TTS 支持）
-            # 暂时降级为文本
-            msg_chain.append(Plain(text_content))
-
-        # 发送
-        for target in targets:
-            if not target: continue
-            try:
-                # 统一使用 context.send_message，它会自动处理不同平台的适配
-                # 注意：send_message 通常接受 MessageChain 对象
-                await self.context.send_message(target, MessageChain(msg_chain))
-                    
-                self.logger.info(f"Reported schedule to {target}")
-            except Exception as e:
-                self.logger.error(f"Failed to report to {target}: {e}")
+        try:
+            # 统一使用 context.send_message，它会自动处理不同平台的适配
+            # 注意：send_message 通常接受 MessageChain 对象
+            await self.context.send_message(target_umo, MessageChain([Plain(text_content)]))
+                
+            self.logger.info(f"Sent schedule to {target_umo}")
+        except Exception as e:
+            self.logger.error(f"Failed to send schedule to {target_umo}: {e}")
 
     @filter.on_llm_request()
     async def on_llm_request(self, event: AstrMessageEvent, req: ProviderRequest):
@@ -474,7 +382,7 @@ class Main(Star):
         if action == "show":
             info = self.schedule_data.get(today_str)
             if info:
-                await self.report_schedule(info, event.unified_msg_origin)
+                await self.send_schedule_info(info, event.unified_msg_origin)
             else:
                 event.set_result(MessageEventResult().message("今日尚未生成日程。"))
         
@@ -484,7 +392,7 @@ class Main(Star):
             if schedule_info:
                 self.schedule_data[today_str] = schedule_info
                 self.save_data()
-                await self.report_schedule(schedule_info, event.unified_msg_origin)
+                await self.send_schedule_info(schedule_info, event.unified_msg_origin)
             else:
                 event.set_result(MessageEventResult().message("生成失败，请检查日志。"))
         
