@@ -422,6 +422,10 @@ class Main(Star):
     @filter.on_llm_request()
     async def on_llm_request(self, event: AstrMessageEvent, req: ProviderRequest):
         """System Prompt 注入 & 懒加载"""
+        # 防止无限递归：如果请求来自本插件的日程生成任务，直接忽略
+        if req.session_id == "life_scheduler_gen":
+            return
+
         today_str = datetime.datetime.now().strftime("%Y-%m-%d")
         
         # Double-check locking pattern for lazy loading
