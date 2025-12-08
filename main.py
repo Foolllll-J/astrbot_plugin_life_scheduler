@@ -48,7 +48,6 @@ class SchedulerConfig:
     schedule_time: str = "07:00"
     reference_history_days: int = 3
     reference_chats: List[ChatReference] = field(default_factory=list)
-    push_targets: List[str] = field(default_factory=list) # List of umo to push schedule automatically
     prompt_template: str = """# Role: Life Scheduler
 请根据以下信息，为自己规划一份今天的生活安排。请代入你的人设，生成的内容应富有生活气息，避免机械的流水账。
 
@@ -77,16 +76,15 @@ class SchedulerConfig:
     @staticmethod
     def from_dict(data: dict) -> 'SchedulerConfig':
         config = SchedulerConfig()
+        if not isinstance(data, dict):
+            return config
+            
         config.schedule_time = data.get("schedule_time", "07:00")
         config.reference_history_days = data.get("reference_history_days", 3)
         
         refs = data.get("reference_chats", [])
         if isinstance(refs, list):
             config.reference_chats = [ChatReference.from_dict(r) for r in refs if isinstance(r, dict)]
-        
-        config.push_targets = data.get("push_targets", [])
-        if not isinstance(config.push_targets, list):
-            config.push_targets = []
         
         if "prompt_template" in data:
             config.prompt_template = data["prompt_template"]
@@ -100,12 +98,53 @@ class SchedulerConfig:
             "schedule_time": self.schedule_time,
             "reference_history_days": self.reference_history_days,
             "reference_chats": [r.to_dict() for r in self.reference_chats],
-            "push_targets": self.push_targets,
             "prompt_template": self.prompt_template,
             "outfit_desc": self.outfit_desc
         }
 
 # --- Helper Functions ---
+
+def extract_json_from_text(text: str) -> Optional[dict]:
+    """
+    Extracts the first JSON object from the text using a stack-based approach
+    to handle nested braces correctly.
+    """
+    text = text.strip()
+    # Remove markdown code blocks
+    text = re.sub(r'^```json\s*', '', text, flags=re.MULTILINE)
+    text = re.sub(r'^```\s*', '', text, flags=re.MULTILINE)
+    text = re.sub(r'```\s*$', '', text, flags=re.MULTILINE)
+    
+    start_index = text.find('{')
+    if start_index == -1:
+        return None
+    
+    brace_level = 0
+    in_string = False
+    escape = False
+    
+    for i, char in enumerate(text[start_index:], start=start_index):
+        if in_string:
+            if escape:
+                escape = False
+            elif char == '\\':
+                escape = True
+            elif char == '"':
+                in_string = False
+        else:
+            if char == '"':
+                in_string = True
+            elif char == '{':
+                brace_level += 1
+            elif char == '}':
+                brace_level -= 1
+                if brace_level == 0:
+                    json_str = text[start_index:i+1]
+                    try:
+                        return json.loads(json_str)
+                    except json.JSONDecodeError:
+                         pass
+    return None
 
 async def get_recent_chats(context: Context, umo: str, count: int) -> str:
     """获取指定会话的最近聊天记录"""
@@ -212,6 +251,7 @@ class Main(Star):
         self.data_path = self.base_dir / "data.json"
         
         self.generation_lock = asyncio.Lock()
+        self.data_lock = asyncio.Lock()
         self.failed_dates = set() # Track dates where generation failed to avoid infinite retries
         
         self.config = self.load_config()
@@ -257,17 +297,18 @@ class Main(Star):
         return {}
 
     async def save_data(self):
-        try:
-            # Atomic write
-            temp_path = self.data_path.with_suffix(".tmp")
-            async with aiofiles.open(temp_path, 'w', encoding='utf-8') as f:
-                await f.write(json.dumps(self.schedule_data, indent=4, ensure_ascii=False))
-            
-            if os.name == 'nt' and self.data_path.exists():
-                 os.remove(self.data_path) # Windows replace fix
-            os.replace(temp_path, self.data_path)
-        except Exception as e:
-            logger.exception(f"Failed to save data: {e}")
+        async with self.data_lock:
+            try:
+                # Atomic write
+                temp_path = self.data_path.with_suffix(".tmp")
+                async with aiofiles.open(temp_path, 'w', encoding='utf-8') as f:
+                    await f.write(json.dumps(self.schedule_data, indent=4, ensure_ascii=False))
+                
+                if os.name == 'nt' and self.data_path.exists():
+                    os.remove(self.data_path) # Windows replace fix
+                os.replace(temp_path, self.data_path)
+            except Exception as e:
+                logger.exception(f"Failed to save data: {e}")
 
     async def daily_schedule_task(self):
         """定时任务：生成日程"""
@@ -279,13 +320,10 @@ class Main(Star):
             logger.error("Failed to generate schedule.")
             return
 
-        self.schedule_data[today_str] = schedule_info
+        async with self.data_lock:
+            self.schedule_data[today_str] = schedule_info
         await self.save_data()
         
-        # 自动推送
-        for target in self.config.push_targets:
-            await self.send_schedule_info(schedule_info, target)
-
     async def generate_schedule_with_llm(self) -> Optional[Dict[str, str]]:
         """调用 LLM 生成日程"""
         today = datetime.datetime.now()
@@ -359,18 +397,12 @@ class Main(Star):
                 content = response.completion_text
                 
                 # JSON 提取
-                # Improved JSON extraction: Non-greedy match for first JSON object
-                match = re.search(r'\{[\s\S]*?\}', content)
-                if match:
-                    json_str = match.group(0)
-                    try:
-                        return json.loads(json_str)
-                    except json.JSONDecodeError:
-                        logger.warning(f"Failed to decode JSON from LLM: {json_str}")
-                        # Fallback
-                        return {"outfit": "日常休闲装", "schedule": content}
+                json_data = extract_json_from_text(content)
+                if json_data:
+                    return json_data
                 else:
-                    logger.warning(f"LLM response not in JSON format: {content}")
+                    logger.warning(f"LLM response not in JSON format or decoding failed: {content}")
+                    # Fallback
                     return {"outfit": "日常休闲装", "schedule": content}
             finally:
                 # 任务完成后，清理该临时会话的历史记录，防止上下文无限增长
@@ -387,23 +419,6 @@ class Main(Star):
             logger.exception(f"Error calling LLM: {e}")
             return None
 
-    async def send_schedule_info(self, schedule_info: Dict[str, str], target_umo: str):
-        """发送日程信息"""
-        if not target_umo:
-            return
-
-        # 准备内容
-        text_content = f"📅 {datetime.datetime.now().strftime('%Y-%m-%d')}\n👗 今日穿搭：{schedule_info.get('outfit')}\n📝 日程安排：\n{schedule_info.get('schedule')}"
-        
-        try:
-            # 统一使用 context.send_message，它会自动处理不同平台的适配
-            # 注意：send_message 通常接受 MessageChain 对象
-            await self.context.send_message(target_umo, MessageChain([Plain(text_content)]))
-                
-            logger.info(f"Sent schedule to {target_umo}")
-        except Exception as e:
-            logger.exception(f"Failed to send schedule to {target_umo}: {e}")
-
     @filter.on_llm_request()
     async def on_llm_request(self, event: AstrMessageEvent, req: ProviderRequest):
         """System Prompt 注入 & 懒加载"""
@@ -417,7 +432,8 @@ class Main(Star):
                     logger.info(f"Lazy loading schedule for {today_str}...")
                     schedule_info = await self.generate_schedule_with_llm()
                     if schedule_info:
-                        self.schedule_data[today_str] = schedule_info
+                        async with self.data_lock:
+                            self.schedule_data[today_str] = schedule_info
                         await self.save_data()
                     else:
                         logger.warning(f"Failed to lazy load schedule for {today_str}. Marking as failed to prevent infinite retries.")
@@ -439,79 +455,70 @@ class Main(Star):
         生活日程管理指令
         /life show - 查看今日日程
         /life regenerate - 重新生成今日日程
-        /life on - 开启当前会话的自动推送
-        /life off - 关闭当前会话的自动推送
         /life time [HH:MM] - 设置每日生成时间
         """
         today_str = datetime.datetime.now().strftime("%Y-%m-%d")
         umo = event.unified_msg_origin
         
+        result = None
+
         if action == "show":
             info = self.schedule_data.get(today_str)
             if info:
-                await self.send_schedule_info(info, umo)
+                # 如果已有日程，直接返回日程信息字符串，让 AstrBot 处理发送
+                text_content = f"📅 {today_str}\n👗 今日穿搭：{info.get('outfit')}\n📝 日程安排：\n{info.get('schedule')}"
+                result = MessageEventResult().message(text_content)
             else:
                 # 尝试生成
-                event.set_result(MessageEventResult().message("今日尚未生成日程，正在为您生成..."))
+                await self.context.send_message(umo, MessageChain([Plain("今日尚未生成日程，正在为您生成...")]))
                 schedule_info = await self.generate_schedule_with_llm()
                 if schedule_info:
-                    self.schedule_data[today_str] = schedule_info
+                    async with self.data_lock:
+                        self.schedule_data[today_str] = schedule_info
                     await self.save_data()
-                    await self.send_schedule_info(schedule_info, umo)
+                    text_content = f"📅 {today_str}\n👗 今日穿搭：{schedule_info.get('outfit')}\n📝 日程安排：\n{schedule_info.get('schedule')}"
+                    result = MessageEventResult().message(text_content)
                 else:
-                    event.set_result(MessageEventResult().message("生成失败，请检查日志。"))
+                    result = MessageEventResult().message("生成失败，请检查日志。")
         
         elif action == "regenerate":
+            await self.context.send_message(umo, MessageChain([Plain("正在重新生成日程...")]))
             schedule_info = await self.generate_schedule_with_llm()
             if schedule_info:
-                self.schedule_data[today_str] = schedule_info
+                async with self.data_lock:
+                    self.schedule_data[today_str] = schedule_info
                 await self.save_data()
-                await self.send_schedule_info(schedule_info, umo)
+                text_content = f"📅 {today_str}\n👗 今日穿搭：{schedule_info.get('outfit')}\n📝 日程安排：\n{schedule_info.get('schedule')}"
+                result = MessageEventResult().message(text_content)
             else:
-                event.set_result(MessageEventResult().message("生成失败，请检查日志。"))
-        
-        elif action == "on":
-            if umo not in self.config.push_targets:
-                self.config.push_targets.append(umo)
-                await self.save_config()
-                event.set_result(MessageEventResult().message("已开启当前会话的自动日程推送。"))
-            else:
-                event.set_result(MessageEventResult().message("当前会话已开启自动推送。"))
-        
-        elif action == "off":
-            if umo in self.config.push_targets:
-                self.config.push_targets.remove(umo)
-                await self.save_config()
-                event.set_result(MessageEventResult().message("已关闭当前会话的自动日程推送。"))
-            else:
-                event.set_result(MessageEventResult().message("当前会话未开启自动推送。"))
+                result = MessageEventResult().message("生成失败，请检查日志。")
         
         elif action == "time":
             if not param:
-                 event.set_result(MessageEventResult().message("请提供时间，格式为 HH:MM，例如 /life time 07:30"))
-                 return
+                 result = MessageEventResult().message("请提供时间，格式为 HH:MM，例如 /life time 07:30")
             
-            if not re.match(r"^\d{2}:\d{2}$", param):
-                event.set_result(MessageEventResult().message("时间格式错误，请使用 HH:MM 格式。"))
-                return
+            elif not re.match(r"^\d{2}:\d{2}$", param):
+                result = MessageEventResult().message("时间格式错误，请使用 HH:MM 格式。")
             
-            try:
-                self.scheduler.update_schedule_time(param)
-                self.config.schedule_time = param
-                await self.save_config()
-                event.set_result(MessageEventResult().message(f"已将每日日程生成时间更新为 {param}。"))
-            except Exception as e:
-                event.set_result(MessageEventResult().message(f"设置失败: {e}"))
+            else:
+                try:
+                    self.scheduler.update_schedule_time(param)
+                    self.config.schedule_time = param
+                    await self.save_config()
+                    result = MessageEventResult().message(f"已将每日日程生成时间更新为 {param}。")
+                except Exception as e:
+                    result = MessageEventResult().message(f"设置失败: {e}")
 
         else:
-            event.set_result(MessageEventResult().message(
+            result = MessageEventResult().message(
                 "指令用法：\n"
                 "/life show - 查看日程\n"
                 "/life regenerate - 重新生成\n"
-                "/life on - 开启自动推送\n"
-                "/life off - 关闭自动推送\n"
                 "/life time <HH:MM> - 设置生成时间"
-            ))
+            )
+        
+        if result:
+            yield result
 
     async def terminate(self):
         """插件卸载时清理"""
