@@ -584,7 +584,7 @@ class Main(Star):
             req.system_prompt += inject_text
 
     @filter.command("life")
-    async def life_command(self, event: AstrMessageEvent, action: str = "", param: str = ""):
+    async def life_command(self, event: AstrMessageEvent, *, args: str = ""):
         """
         生活日程管理指令
         /life show - 查看今日日程
@@ -594,65 +594,63 @@ class Main(Star):
         today_str = datetime.datetime.now().strftime("%Y-%m-%d")
         umo = event.unified_msg_origin
         
-        result = None
+        # 解析参数
+        parts = args.strip().split(maxsplit=1)
+        action = parts[0] if parts else ""
+        param = parts[1] if len(parts) > 1 else ""
 
         if action == "show":
             info = self.schedule_data.get(today_str)
             if info:
-                # 如果已有日程，直接返回日程信息字符串，让 AstrBot 处理发送
+                # 如果已有日程，直接返回日程信息字符串
                 text_content = f"📅 {today_str}\n👗 今日穿搭：{info.get('outfit')}\n📝 日程安排：\n{info.get('schedule')}"
-                result = MessageEventResult().message(text_content)
+                yield event.plain_result(text_content)
             else:
                 # 尝试生成
-                await self.context.send_message(umo, MessageChain([Plain("今日尚未生成日程，正在为您生成...")]))
+                yield event.plain_result("今日尚未生成日程，正在为您生成...")
                 schedule_info = await self.generate_schedule_with_llm()
                 if schedule_info:
                     async with self.data_lock:
                         self.schedule_data[today_str] = schedule_info
                     await self.save_data()
                     text_content = f"📅 {today_str}\n👗 今日穿搭：{schedule_info.get('outfit')}\n📝 日程安排：\n{schedule_info.get('schedule')}"
-                    result = MessageEventResult().message(text_content)
+                    yield event.plain_result(text_content)
                 else:
-                    result = MessageEventResult().message("生成失败，请检查日志。")
+                    yield event.plain_result("生成失败，请检查日志。")
         
         elif action == "regenerate":
-            await self.context.send_message(umo, MessageChain([Plain("正在重新生成日程...")]))
+            yield event.plain_result("正在重新生成日程...")
             schedule_info = await self.generate_schedule_with_llm()
             if schedule_info:
                 async with self.data_lock:
                     self.schedule_data[today_str] = schedule_info
                 await self.save_data()
                 text_content = f"📅 {today_str}\n👗 今日穿搭：{schedule_info.get('outfit')}\n📝 日程安排：\n{schedule_info.get('schedule')}"
-                result = MessageEventResult().message(text_content)
+                yield event.plain_result(text_content)
             else:
-                result = MessageEventResult().message("生成失败，请检查日志。")
+                yield event.plain_result("生成失败，请检查日志。")
         
         elif action == "time":
             if not param:
-                 result = MessageEventResult().message("请提供时间，格式为 HH:MM，例如 /life time 07:30")
-            
+                yield event.plain_result("请提供时间，格式为 HH:MM，例如 /life time 07:30")
             elif not re.match(r"^\d{2}:\d{2}$", param):
-                result = MessageEventResult().message("时间格式错误，请使用 HH:MM 格式。")
-            
+                yield event.plain_result("时间格式错误，请使用 HH:MM 格式。")
             else:
                 try:
                     self.scheduler.update_schedule_time(param)
                     self.config.schedule_time = param
                     await self.save_config()
-                    result = MessageEventResult().message(f"已将每日日程生成时间更新为 {param}。")
+                    yield event.plain_result(f"已将每日日程生成时间更新为 {param}。")
                 except Exception as e:
-                    result = MessageEventResult().message(f"设置失败: {e}")
+                    yield event.plain_result(f"设置失败: {e}")
 
         else:
-            result = MessageEventResult().message(
+            yield event.plain_result(
                 "指令用法：\n"
                 "/life show - 查看日程\n"
                 "/life regenerate - 重新生成\n"
                 "/life time <HH:MM> - 设置生成时间"
             )
-        
-        if result:
-            yield result
 
     async def terminate(self):
         """插件卸载时清理"""
