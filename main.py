@@ -8,7 +8,7 @@ from astrbot.core.config.astrbot_config import AstrBotConfig
 from astrbot.core.provider.entities import ProviderRequest
 from astrbot.core.star.star_tools import StarTools
 
-from .core.data import ScheduleData, ScheduleDataManager
+from .core.data import ScheduleDataManager
 from .core.generator import SchedulerGenerator
 from .core.schedule import LifeScheduler
 from .core.utils import time_desc
@@ -45,9 +45,9 @@ class LifeSchedulerPlugin(Star):
 
         today = datetime.datetime.now()
         umo = event.unified_msg_origin
-        data: ScheduleData = self.data_mgr.get(
-            today
-        ) or await self.generator.generate_schedule(today, umo)
+        data = self.data_mgr.get(today) or await self.generator.generate_schedule(
+            today, umo
+        )
         if data.status == "failed":
             return
 
@@ -68,69 +68,63 @@ class LifeSchedulerPlugin(Star):
         req.system_prompt += inject_text
         logger.debug(f"[LLM] 添加的内在状态注入：{inject_text}")
 
-    @filter.command("life")
-    async def life_command(
-        self,
-        event: AstrMessageEvent,
-        action: str | None = None,
-        param: str | None = None,
-    ):
-        """
-        生活日程管理指令
-        /life show - 查看今日日程
-        /life regenerate - 重新生成今日日程
-        /life time [HH:MM] - 设置每日生成时间
-        """
+    @filter.command("查看日程", alias={"life show"})
+    async def life_show(self, event: AstrMessageEvent):
+        """查看今日的日程"""
         today = datetime.datetime.now()
         today_str = today.strftime("%Y-%m-%d")
         umo = event.unified_msg_origin
-        match action:
-            case "show":
-                data = self.data_mgr.get(
-                    today
-                ) or await self.generator.generate_schedule(today, umo)
-                if not data:
-                    yield event.plain_result("今日尚未生成日程，生成失败")
-                    return
 
-                yield event.plain_result(
-                    f"📅 {today_str}\n👗 今日穿搭：{data.outfit}\n📝 日程安排：\n{data.schedule}"
-                )
+        data = self.data_mgr.get(today)
+        if not data:
+            yield event.plain_result("今日还没日程，正在生成...")
+            data = await self.generator.generate_schedule(today, umo)
 
-            case "regenerate":
-                yield event.plain_result("正在重新生成今日日程...")
-                data = await self.generator.generate_schedule(today, umo)
-                if not data:
-                    yield event.plain_result("重新生成失败，请查看日志")
-                    return
-                self.data_mgr.set(data)
+        yield event.plain_result(
+            f"📅 {today_str}\n👗 今日穿搭：{data.outfit}\n📝 日程安排：\n{data.schedule}"
+        )
 
-                yield event.plain_result(
-                    f"📅 {today_str}"
-                    f"\n👗 今日穿搭：{data.outfit}"
-                    f"\n📝 日程安排：\n{data.schedule}"
-                )
-            case "time":
-                if not param:
-                    yield event.plain_result(
-                        "请提供时间，格式为 HH:MM，例如 /life time 07:30"
-                    )
-                elif not re.match(r"^\d{2}:\d{2}$", param):
-                    yield event.plain_result("时间格式错误，请使用 HH:MM 格式。")
-                else:
-                    try:
-                        self.scheduler.update_schedule_time(param)
-                        self.config["schedule_time"] = param
-                        self.config.save_config()
-                        yield event.plain_result(
-                            f"已将每日日程生成时间更新为 {param}。"
-                        )
-                    except Exception as e:
-                        yield event.plain_result(f"设置失败: {e}")
-            case _:
-                yield event.plain_result(
-                    "指令用法：\n"
-                    "/life show - 查看日程\n"
-                    "/life regenerate - 重新生成\n"
-                    "/life time <HH:MM> - 设置生成时间"
-                )
+    @filter.command("重写日程", alias={"life renew"})
+    async def life_renew(self, event: AstrMessageEvent):
+        """重写今日的日程"""
+        today = datetime.datetime.now()
+        today_str = today.strftime("%Y-%m-%d")
+        umo = event.unified_msg_origin
+        yield event.plain_result("正在重写今日日程...")
+        data = await self.generator.generate_schedule(today, umo)
+        yield event.plain_result(
+            f"📅 {today_str}"
+            f"\n👗 今日穿搭：{data.outfit}"
+            f"\n📝 日程安排：\n{data.schedule}"
+        )
+
+    @filter.command("日程时间", alias={"life time"})
+    async def life_time(self, event: AstrMessageEvent, param: str | None = None):
+        """日程时间 [HH:MM] ，设置每日日程生成时间"""
+        if not param:
+            yield event.plain_result("请提供时间，格式为 HH:MM，例如 /life time 07:30")
+            return
+
+        # 支持 1~2 位小时、1~2 位分钟，中间用冒号分隔
+        if not re.match(r"^\d{1,2}:\d{1,2}$", param):
+            yield event.plain_result("时间格式错误，请使用 HH:MM 格式")
+            return
+
+        # 再补一层范围校验，防止 99:99 这类非法时间
+        try:
+            hour, minute = map(int, param.split(":"))
+            if not (0 <= hour <= 23 and 0 <= minute <= 59):
+                raise ValueError
+        except ValueError:
+            yield event.plain_result(
+                "时间格式错误，请使用 HH:MM 格式，且小时 0-23、分钟 0-59"
+            )
+            return
+
+        try:
+            self.scheduler.update_schedule_time(param)
+            self.config["schedule_time"] = param
+            self.config.save_config()
+            yield event.plain_result(f"已将每日日程生成时间更新为 {param}。")
+        except Exception as e:
+            yield event.plain_result(f"设置失败: {e}")

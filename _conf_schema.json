@@ -17,14 +17,14 @@
   },
   "reference_recent_count": {
     "description": "生成时参考的近期会话数量",
-    "hint": "bot会从最近的会话中爬取聊天记录来辅助日程的生成",
+    "hint": "bot会从最近的会话中爬取聊天记录来辅助日程的生成, 设为 0 时，则不参考近期会话",
     "type": "int",
     "slider": {
-      "min": 10,
+      "min": 0,
       "max": 100,
       "step": 1
     },
-    "default": 15
+    "default": 10
   },
   "pool": {
     "description": "创意池",
@@ -108,12 +108,6 @@
       }
     }
   },
-  "outfit_desc": {
-    "description": "穿搭生成的提示词要求",
-    "hint":"此处提示词会并入生成日程的 Prompt 模板",
-    "type": "text",
-    "default": "今日穿搭描述（从里到外、从上到下、衣裤内衣裤鞋袜、饰品等，符合天气和心情）。"
-  },
   "prompt_template": {
     "description": "LLM 生成日程的完整 Prompt 模板",
     "type": "text",
@@ -121,6 +115,6 @@
     "editor_mode": true,
     "editor_language": "markdown",
     "editor_theme": "vs-dark",
-    "default": "# Role: Life Scheduler\n请根据以下信息，为自己规划一份今天的生活安排。\n\n## Context\n- 日期：{date_str} {weekday} {holiday}\n- 人设：{persona_desc}\n\n## 🎲 今日创意约束（必须遵循）\n- 今日主题：【{daily_theme}】\n- 心情色彩：【{mood_color}】\n- 推荐穿搭风格：【{outfit_style}】\n- 日程类型：【{schedule_type}】\n\n## 🚫 需要避免的重复内容\n{history_schedules}\n\n## 💡 参考信息\n{recent_chats}\n\n## Tasks\n1. outfit: 设计今日穿搭。{outfit_desc}\n2. schedule: 规划今日日程。\n\n## Output Format\n请严格返回 JSON：\n{\n  \"outfit\": \"...\",\n  \"schedule\": \"...\"\n}"
+    "default": "# Role: Life Scheduler\n请根据以下信息，为自己规划一份今天的生活安排。\n\n## Context\n- 日期：{date_str} {weekday} {holiday}\n- 人设：{persona_desc}\n\n## 🎲 今日创意约束（必须遵循）\n- 今日主题：【{daily_theme}】\n- 心情色彩：【{mood_color}】\n- 推荐穿搭风格：【{outfit_style}】\n- 日程类型：【{schedule_type}】\n\n## 🚫 需要避免的重复内容\n{history_schedules}\n\n## 💡 参考信息\n{recent_chats}\n\n## Tasks\n1. outfit: 今日穿搭描述（从里到外、从上到下、衣裤内衣裤鞋袜、饰品等，符合天气和心情）\n2. schedule: 规划今日日程。\n\n## Output Format\n请严格返回 JSON：\n{{\n  \"outfit\": \"...\",\n  \"schedule\": \"...\"\n}}"
   }
 }

@@ -2,7 +2,7 @@ import datetime
 import json
 import random
 import re
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 
 from astrbot.api import logger
 from astrbot.core.config.astrbot_config import AstrBotConfig
@@ -17,7 +17,6 @@ class ScheduleContext:
     weekday: str
     holiday: str
     persona_desc: str
-    outfit_desc: str
     history_schedules: str
     recent_chats: str
     daily_theme: str
@@ -46,10 +45,16 @@ class SchedulerGenerator:
             ctx = await self._collect_context(date, umo)
             prompt = self._build_prompt(ctx)
             content = await self._call_llm(prompt)
-            return self._parse_result(content, date_str)
-        except Exception:
-            logger.error("schedule generate failed")
-            return ScheduleData(date=date_str, status="failed")
+            data = self._parse_result(content, date_str)
+            self.data_mgr.set(data)
+            return data
+        except Exception as e:
+            logger.error(f"日程生成失败: {e}")
+            return ScheduleData(
+                date=date_str, outfit="生成失败", schedule="生成失败", status="failed"
+            )
+        finally:
+            self.data_mgr.set(data)
 
     # ---------- context ----------
 
@@ -61,7 +66,6 @@ class SchedulerGenerator:
             weekday=self._weekday(data),
             holiday=self._get_holiday_info(data.date()),
             persona_desc=await self._get_persona(),
-            outfit_desc=self.config["outfit_desc"],
             history_schedules=self._get_history(data),
             recent_chats=await self._get_recent_chats(umo),
             **self._pick_diversity(),
@@ -163,7 +167,7 @@ class SchedulerGenerator:
     # ---------- llm ----------
 
     def _build_prompt(self, ctx: ScheduleContext) -> str:
-        return self.config["prompt_template"].format(**ctx.__dict__)
+        return self.config["prompt_template"].format(**asdict(ctx))
 
     async def _call_llm(self, prompt: str) -> str:
         provider = self.context.get_using_provider()
@@ -194,7 +198,7 @@ class SchedulerGenerator:
 
         start = text.find("{")
         if start == -1:
-            return ScheduleData(date=date_str, outfit="日常休闲装", schedule="")
+            return ScheduleData(date=date_str, outfit="日常休闲装", schedule="无")
 
         brace = 0
         in_string = False
@@ -222,7 +226,7 @@ class SchedulerGenerator:
                             return ScheduleData(
                                 date=date_str,
                                 outfit=data.get("outfit", "日常休闲装"),
-                                schedule=data.get("schedule", ""),
+                                schedule=data.get("schedule", "无"),
                             )
                         except Exception:
                             break
@@ -232,4 +236,3 @@ class SchedulerGenerator:
             outfit="日常休闲装",
             schedule=text,
         )
-
