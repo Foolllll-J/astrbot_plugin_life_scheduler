@@ -184,7 +184,12 @@ class SchedulerGenerator:
     # ---------- llm ----------
 
     def _build_prompt(self, ctx: ScheduleContext) -> str:
-        return self.config["prompt_template"].format(**asdict(ctx))
+        # 把 ctx 转 dict，再补模板里可能用到、但 dataclass 里没有的字段
+        ctx_dict = asdict(ctx)
+        template_keys = re.findall(r"\{(\w+)\}", self.config["prompt_template"])
+        for k in template_keys:
+            ctx_dict.setdefault(k, "")  # 缺啥补啥，默认空串
+        return self.config["prompt_template"].format(**ctx_dict)
 
     async def _call_llm(self, prompt: str) -> str:
         provider = self.context.get_using_provider()
