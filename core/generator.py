@@ -182,9 +182,19 @@ class SchedulerGenerator:
             return "你是一个热爱生活、情感细腻的AI伙伴。"
 
     # ---------- llm ----------
-
     def _build_prompt(self, ctx: ScheduleContext) -> str:
-        return self.config["prompt_template"].format(**asdict(ctx))
+        ctx_dict = asdict(ctx)  # 实际有的字段
+        tmpl_vars = set(re.findall(r"\{(\w+)\}", self.config["prompt_template"]))
+        missing = tmpl_vars - ctx_dict.keys()
+        if missing:
+            logger.warning(
+                f"prompt 模板存在 ScheduleContext 未提供的字段：{missing}| 已自动替换成空串"
+            )
+
+        # 统一补空值，避免 KeyError
+        for k in missing:
+            ctx_dict[k] = ""
+        return self.config["prompt_template"].format(**ctx_dict)
 
     async def _call_llm(self, prompt: str) -> str:
         provider = self.context.get_using_provider()

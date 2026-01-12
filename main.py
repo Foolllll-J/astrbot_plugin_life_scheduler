@@ -99,9 +99,7 @@ class LifeSchedulerPlugin(Star):
             yield event.plain_result("已有日程生成任务在进行中，请稍后再试")
             return
         yield event.plain_result(
-            f"📅 {today_str}"
-            f"\n👗 今日穿搭：{data.outfit}"
-            f"\n📝 日程安排：\n{data.schedule}"
+            f"📅 {today_str}\n👗 今日穿搭：{data.outfit}\n📝 日程安排：{data.schedule}"
         )
 
     @filter.command("日程时间", alias={"life time"})
