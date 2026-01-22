@@ -50,19 +50,13 @@ class LifeSchedulerPlugin(Star):
         if data.status == "failed":
             return
 
-        # 使用更隐晦的方式注入，强调这是内心状态而非需要表达的信息
         inject_text = f"""
-
-[内在状态 - 仅供理解角色当前心境，无需在对话中提及]
-时间感知：{time_desc()}
-穿着状态：{data.outfit}
-当日背景：{data.schedule}
-
-[对话原则]
-- 专注于用户当前的话题和需求
-- 像真人一样自然对话，不解释自己在做什么、穿什么、在哪里
-- 只有当用户明确问起时，才简短回应相关问题
-- 上述内在状态只影响你的语气和情绪色彩，不作为对话内容"""
+<character_state>
+时间: {time_desc()}
+穿着: {data.outfit}
+日程: {data.schedule}
+</character_state>
+[上述状态仅供需要时参考，无需主动提及]"""
 
         req.system_prompt += inject_text
         logger.debug(f"[LLM] 添加的内在状态注入：{inject_text}")
@@ -88,14 +82,17 @@ class LifeSchedulerPlugin(Star):
 
     @filter.permission_type(filter.PermissionType.ADMIN)
     @filter.command("重写日程", alias={"life renew"})
-    async def life_renew(self, event: AstrMessageEvent):
-        """重写今日的日程"""
+    async def life_renew(self, event: AstrMessageEvent, extra: str | None = None):
+        """重写今日的日程，可附加补充要求。用法：重写日程 [补充要求]"""
         today = datetime.datetime.now()
         today_str = today.strftime("%Y-%m-%d")
         umo = event.unified_msg_origin
-        yield event.plain_result("正在重写今日日程...")
+        if extra:
+            yield event.plain_result(f"正在根据补充要求重写今日日程：{extra}")
+        else:
+            yield event.plain_result("正在重写今日日程...")
         try:
-            data = await self.generator.generate_schedule(today, umo)
+            data = await self.generator.generate_schedule(today, umo, extra=extra)
         except RuntimeError:
             yield event.plain_result("已有日程生成任务在进行中，请稍后再试")
             return

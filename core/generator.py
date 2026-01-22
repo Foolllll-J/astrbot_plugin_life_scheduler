@@ -41,7 +41,7 @@ class SchedulerGenerator:
         self._generating = False
 
     async def generate_schedule(
-        self, date: datetime.datetime | None = None, umo: str | None = None
+        self, date: datetime.datetime | None = None, umo: str | None = None, extra: str | None = None
     ) -> ScheduleData:
         async with self._gen_lock:
             if self._generating:
@@ -54,7 +54,7 @@ class SchedulerGenerator:
         try:
             logger.info(f"正在生成 {date_str} 的日程...")
             ctx = await self._collect_context(date, umo)
-            prompt = self._build_prompt(ctx)
+            prompt = self._build_prompt(ctx, extra)
             content = await self._call_llm(prompt)
             data = self._parse_result(content, date_str)
             self.data_mgr.set(data)
@@ -182,7 +182,7 @@ class SchedulerGenerator:
             return "你是一个热爱生活、情感细腻的AI伙伴。"
 
     # ---------- llm ----------
-    def _build_prompt(self, ctx: ScheduleContext) -> str:
+    def _build_prompt(self, ctx: ScheduleContext, extra: str | None = None) -> str:
         ctx_dict = asdict(ctx)  # 实际有的字段
         tmpl_vars = set(re.findall(r"\{(\w+)\}", self.config["prompt_template"]))
         missing = tmpl_vars - ctx_dict.keys()
@@ -194,7 +194,13 @@ class SchedulerGenerator:
         # 统一补空值，避免 KeyError
         for k in missing:
             ctx_dict[k] = ""
-        return self.config["prompt_template"].format(**ctx_dict)
+        prompt = self.config["prompt_template"].format(**ctx_dict)
+        
+        # 如果有用户补充要求，追加到 prompt 末尾
+        if extra:
+            prompt += f"\n\n【用户补充要求】\n请在生成日程时特别注意以下要求：{extra}"
+        
+        return prompt
 
     async def _call_llm(self, prompt: str) -> str:
         provider = self.context.get_using_provider()
