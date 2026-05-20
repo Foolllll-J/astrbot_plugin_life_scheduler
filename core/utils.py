@@ -21,6 +21,25 @@ def time_desc(h=None):
         else "深夜"
     )
 
+def parse_schedule_time(schedule_time: str | None) -> tuple[int, int]:
+    schedule_time = str(schedule_time or "00:00")
+    try:
+        hour, minute = map(int, schedule_time.split(":", 1))
+    except Exception:
+        return 0, 0
+    if 0 <= hour <= 23 and 0 <= minute <= 59:
+        return hour, minute
+    return 0, 0
 
 
+def resolve_business_now(
+    schedule_time: str | None,
+    now: datetime.datetime | None = None,
+) -> datetime.datetime:
+    now = now or datetime.datetime.now()
+    hour, minute = parse_schedule_time(schedule_time)
+    boundary = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if now < boundary:
+        return now - datetime.timedelta(days=1)
+    return now
 

@@ -11,7 +11,7 @@ from astrbot.core.star.star_tools import StarTools
 from .core.data import ScheduleDataManager
 from .core.generator import SchedulerGenerator
 from .core.schedule import LifeScheduler
-from .core.utils import time_desc
+from .core.utils import resolve_business_now, time_desc
 
 
 class LifeSchedulerPlugin(Star):
@@ -39,7 +39,7 @@ class LifeSchedulerPlugin(Star):
     @filter.on_llm_request()
     async def on_llm_request(self, event: AstrMessageEvent, req: ProviderRequest):
         """System Prompt 注入"""
-        today = datetime.datetime.now()
+        today = resolve_business_now(self.config.get("schedule_time"))
         umo = event.unified_msg_origin
         data = self.data_mgr.get(today)
         if not data:
@@ -64,7 +64,7 @@ class LifeSchedulerPlugin(Star):
     @filter.command("查看日程", alias={"life show"})
     async def life_show(self, event: AstrMessageEvent):
         """查看今日的日程"""
-        today = datetime.datetime.now()
+        today = resolve_business_now(self.config.get("schedule_time"))
         today_str = today.strftime("%Y-%m-%d")
         umo = event.unified_msg_origin
 
@@ -84,7 +84,7 @@ class LifeSchedulerPlugin(Star):
     @filter.command("重写日程", alias={"life renew"})
     async def life_renew(self, event: AstrMessageEvent, extra: str | None = None):
         """重写今日的日程，可附加补充要求。用法：重写日程 [补充要求]"""
-        today = datetime.datetime.now()
+        today = resolve_business_now(self.config.get("schedule_time"))
         today_str = today.strftime("%Y-%m-%d")
         umo = event.unified_msg_origin
         if extra:
