@@ -374,6 +374,10 @@ class SchedulerGenerator:
             ctx_dict["schedule_type"] = "用户指定"
 
         tmpl_vars = set(re.findall(r"\{(\w+)\}", self.config["prompt_template"]))
+        # 自动为模板中 {r1} {r2} ... 生成独立 1-100 随机数
+        for var in tmpl_vars:
+            if re.match(r'^r\d+$', var):
+                ctx_dict[var] = str(random.randint(1, 100))
         missing = tmpl_vars - ctx_dict.keys()
         if missing:
             logger.warning(
